@@ -1,0 +1,13 @@
+
+ipykernel
+langchain
+langchain-core
+langchain-community
+pypdf
+pymupdf
+sentence-transformers
+faiss-cpu
+chromadb
+onnxruntime==1.17.3
+langchain-groq
+python-dotenv
