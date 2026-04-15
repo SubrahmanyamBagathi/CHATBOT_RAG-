@@ -4,7 +4,9 @@ import requests
 # Internal API (same container)
 import os
 
-API_URL = os.getenv("API_URL", "")
+API_URL = os.getenv("API_URL", "http://127.0.0.1:8000")
+
+st.write(f"Using API: {API_URL}")
 
 st.set_page_config(page_title="RAG Chatbot", layout="wide")
 
