@@ -77,7 +77,15 @@ def query(request: QueryRequest):
     results = retriever.retrieve(request.query, top_k=request.top_k, score_threshold=0.0)
 
     if not results:
-        return QueryResponse(answer="No relevant context found.", sources=[])
+         response = llm.invoke(f"Answer this generally: {request.query}")
+
+    # 🔥 Extract actual text from LLM response
+         answer = response.content if hasattr(response, "content") else str(response)
+
+         return QueryResponse(
+          answer=answer,
+          sources=["LLM (no context)"]
+        )
 
     answer  = rag_answer(request.query, results, llm)
     sources = list({r["metadata"].get("source_file", "unknown") for r in results})
