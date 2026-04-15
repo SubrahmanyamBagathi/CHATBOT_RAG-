@@ -4,8 +4,7 @@ import requests
 # Internal API (same container)
 import os
 
-API_URL = "https://rag-backend.onrender.com"
-
+API_URL = "https://chatbot-rag-cxv9.onrender.com"
 
 st.set_page_config(page_title="RAG Chatbot", layout="wide")
 
@@ -19,8 +18,8 @@ if st.sidebar.button("Check Backend"):
     try:
         res = requests.get(f"{API_URL}/health")
         st.sidebar.success(res.json())
-    except:
-        st.sidebar.error("Backend not reachable")
+    except Exception as e:
+        st.sidebar.error(f"Backend error: {e}")
 
 # ── Upload Section ──────────────────────
 st.header("📤 Upload PDF")
