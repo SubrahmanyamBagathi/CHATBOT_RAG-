@@ -2,7 +2,9 @@ import streamlit as st # type: ignore
 import requests
 
 # Internal API (same container)
-API_URL = "http://localhost:8000"
+import os
+
+API_URL = os.getenv("API_URL", "http://localhost:8000")
 
 st.set_page_config(page_title="RAG Chatbot", layout="wide")
 
