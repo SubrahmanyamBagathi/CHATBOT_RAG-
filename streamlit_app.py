@@ -67,7 +67,7 @@ if user_input:
             if res.status_code == 200:
                 answer = res.json()["answer"]
             else:
-                answer = "Error from backend"
+                answer = f"Backend error {res.status_code}: {res.text}"
 
         except Exception as e:
             answer = str(e)
