@@ -21,7 +21,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ❗ Lazy-loaded instances (IMPORTANT)
+# Lazy-loaded globals
 embedding_manager = None
 vector_store = None
 retriever = None
@@ -41,15 +41,51 @@ class QueryResponse(BaseModel):
     sources: list[str] = []
 
 
+def get_llm_instance():
+    global llm
+    if llm is None:
+        print("Loading LLM...")
+        llm = get_llm()
+    return llm
+
+
+def get_embedding_manager():
+    global embedding_manager
+    if embedding_manager is None:
+        print("Loading EmbeddingManager...")
+        embedding_manager = EmbeddingManager()
+    return embedding_manager
+
+
+def get_vector_store():
+    global vector_store
+    if vector_store is None:
+        print("Loading VectorDB...")
+        vector_store = VectorDB()
+    return vector_store
+
+
+def get_retriever():
+    global retriever
+    if retriever is None:
+        print("Loading Retriever...")
+        retriever = RAGRetriever(get_vector_store(), get_embedding_manager())
+    return retriever
+
+
 @app.get("/")
 def root():
     return {"status": "RAG Chatbot is running"}
 
 
+@app.get("/health")
+def health():
+    vs = get_vector_store()
+    return {"status": "ok", "chunks_in_store": vs.collection.count()}
+
+
 @app.post("/upload")
 async def upload_pdf(file: UploadFile = File(...)):
-    global embedding_manager, vector_store, retriever
-
     if not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
 
@@ -59,18 +95,9 @@ async def upload_pdf(file: UploadFile = File(...)):
 
     print(f"Saved: {save_path}")
 
-    # 🔥 Lazy initialization
-    if embedding_manager is None:
-        print("Loading EmbeddingManager...")
-        embedding_manager = EmbeddingManager()
-
-    if vector_store is None:
-        print("Loading VectorDB...")
-        vector_store = VectorDB()
-
-    if retriever is None:
-        print("Loading Retriever...")
-        retriever = RAGRetriever(vector_store, embedding_manager)
+    vs = get_vector_store()
+    em = get_embedding_manager()
+    get_retriever()  # ensure retriever is initialized
 
     docs = process_all_pdfs(str(UPLOAD_DIR))
     chunks = split_documents(docs)
@@ -79,56 +106,47 @@ async def upload_pdf(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail="No text extracted from PDF.")
 
     texts = [doc.page_content for doc in chunks]
-    embeddings = embedding_manager.generate_embeddings(texts)
-    vector_store.add_documents(chunks, embeddings)
+    embeddings = em.generate_embeddings(texts)
+    vs.add_documents(chunks, embeddings)
 
-    print(f"Total chunks now: {vector_store.collection.count()}")
-
+    print(f"Total chunks now: {vs.collection.count()}")
     return {"message": f"Ingested {len(chunks)} chunks from '{file.filename}'"}
 
 
 @app.post("/query", response_model=QueryResponse)
 def query(request: QueryRequest):
-    global retriever, llm
+    current_llm = get_llm_instance()
+    vs = get_vector_store()
 
-    if retriever is None:
-        raise HTTPException(status_code=400, detail="No documents uploaded yet.")
+    # If no documents uploaded yet, answer with LLM directly
+    if vs.collection.count() == 0:
+        response = current_llm.invoke(
+            f"Answer this question clearly and helpfully:\n\n{request.query}"
+        )
+        answer = response.content if hasattr(response, "content") else str(response)
+        return QueryResponse(answer=answer, sources=["LLM only (no documents uploaded)"])
 
-    # 🔥 Lazy load LLM ONLY when needed
-    if llm is None:
-        print("Loading LLM...")
-        llm = get_llm()
+    ret = get_retriever()
+    print(f"Chunks in store: {vs.collection.count()}")
 
-    print(f"Chunks in store: {vector_store.collection.count()}")
-
-    results = retriever.retrieve(
+    results = ret.retrieve(
         request.query,
         top_k=request.top_k,
         score_threshold=0.0
     )
 
     if not results:
-        response = llm.invoke(f"Answer this generally: {request.query}")
-        answer = response.content if hasattr(response, "content") else str(response)
-
-        return QueryResponse(
-            answer=answer,
-            sources=["LLM (no context)"]
+        response = current_llm.invoke(
+            f"Answer this question clearly and helpfully:\n\n{request.query}"
         )
+        answer = response.content if hasattr(response, "content") else str(response)
+        return QueryResponse(answer=answer, sources=["LLM only (no relevant context found)"])
 
-    answer = rag_answer(request.query, results, llm)
+    answer = rag_answer(request.query, results, current_llm)
     sources = list({r["metadata"].get("source_file", "unknown") for r in results})
-
     return QueryResponse(answer=answer, sources=sources)
 
 
-@app.get("/health")
-def health():
-    if vector_store is None:
-        return {"status": "no data yet"}
-    return {"chunks_in_store": vector_store.collection.count()}
-
-
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
+    port = int(os.environ.get("PORT", 10000))
     uvicorn.run("app:app", host="0.0.0.0", port=port, reload=False)
